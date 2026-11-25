@@ -8,6 +8,8 @@ function [wp, goalXY, info] = plan_path(map, robot, goalXY, opts)
 %   opts.minDist   : 너무 가까운 frontier 무시 [m] (기본 0.8)
 %   opts.gainW     : 정보 이득 가중치             (기본 0.05)
 %   opts.blacklist : Kx2 [x y] 이미 실패한 목표 (반경 1m 내 frontier 제외)
+%   opts.hardR     : 로봇 반지름, 팽창 영역 탈출 시 사용 [m] (기본 0.2)
+%   opts.minGain   : frontier 주변 최소 미탐색 셀 수     (기본 10)
 %
 %   wp     : Mx2 waypoint -> A(주행 제어)에게 전달
 %   goalXY : 실제로 선택된 목표 [x y] (없으면 [])
@@ -20,12 +22,22 @@ if ~isfield(opts, 'inflate'),   opts.inflate = 0.35; end
 if ~isfield(opts, 'minDist'),   opts.minDist = 0.8;  end
 if ~isfield(opts, 'gainW'),     opts.gainW   = 0.05; end
 if ~isfield(opts, 'blacklist'), opts.blacklist = zeros(0, 2); end
+if ~isfield(opts, 'hardR'),     opts.hardR   = 0.2;  end  % 로봇 반지름 (절대 침범 금지)
+if ~isfield(opts, 'minGain'),   opts.minGain = 10;   end  % 작은 미탐색 구멍 무시
 
 S = get_state(map);
 blocked = inflate_obstacles(S == 1, opts.inflate, map.res);
 trav = (S == 0) & ~blocked;
 
 [r0, c0] = world2grid(map, robot(1), robot(2));
+if ~trav(r0, c0)
+    % 로봇이 팽창 영역 안에 있을 때(벽을 늦게 발견한 경우) 탈출 허용:
+    % 로봇 주변 inflate 반경 안에서는 '실제 장애물에서 hardR 이상 떨어진 free 셀'을 허용
+    hard = inflate_obstacles(S == 1, opts.hardR, map.res);
+    [cc, rr] = meshgrid(1:map.n, 1:map.n);
+    near = hypot(rr - r0, cc - c0) * map.res <= opts.inflate + 2 * map.res;
+    trav = trav | (near & (S == 0) & ~hard);
+end
 trav(r0, c0) = true;                       % 시작 셀은 항상 허용
 [dist, parent] = bfs_grid(trav, r0, c0);
 distM = dist * map.res;
@@ -36,7 +48,7 @@ if isempty(goalXY)
     % ---------- frontier 탐색 모드 ----------
     [F, gain] = find_frontiers(S, trav);
     info.frontier = F;
-    cand = F & isfinite(dist) & (distM >= opts.minDist);
+    cand = F & isfinite(dist) & (distM >= opts.minDist) & (gain >= opts.minGain);
     if ~isempty(opts.blacklist)
         [cr, cc] = find(cand);
         [cx, cy] = grid2world(map, cr, cc);
