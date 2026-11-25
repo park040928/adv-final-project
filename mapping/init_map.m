@@ -20,6 +20,6 @@ map.lMin  = -5;
 map.lMax  =  5;
 
 % 상태 판정 임계값 (log-odds)
-map.thOcc  =  0.6;
-map.thFree = -0.6;
+map.thOcc  =  0.6;    % hit 1번(0.85)이면 occupied
+map.thFree = -0.3;    % 통과 1번(-0.4)이면 free
 end
